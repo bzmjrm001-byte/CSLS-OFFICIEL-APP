@@ -4920,8 +4920,8 @@ body.sidebar-right .sidebar.expanded ~ .main {
 /* Mettre DEMO_MODE à false pour la vraie mise en service : cache les comptes démo,
    le code établissement affiché et les fausses réponses automatiques du chat. */
 /* ===== SUPABASE : collez ici l'URL et la clé « anon public » de votre projet ===== */
-const SUPABASE_URL = 'https://vynquarssjawaywvmnbi.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_YqUjQkEDDmqWtfU39V5GKA_JhJbuCNL';
+const SUPABASE_URL = 'https://nuthjkzkixhzjnammaxc.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_aBwsthGadNB9KAS5ZXR3MQ_2ekhNPhw';
 const CLOUD = !!(SUPABASE_URL && SUPABASE_KEY && window.supabase);
 const DEMO_MODE = !(SUPABASE_URL && SUPABASE_KEY);
 const SCHOOL_CODE = 'CSLS32';
@@ -4941,7 +4941,7 @@ const STATE = {
   stories: [],
   admins: [],
   events: [], courses: [], shop: [], seeded: false,
-  ownerEmail: 'owner@csls.cd',
+  ownerEmail: 'bzmjrm001@gmail.com',
   settings: {
     theme: 'ambiance', sidebar: 'left', sidebarExpanded: false,
     sound: true, animations: true, lang: 'fr',
@@ -5372,17 +5372,37 @@ function renderLogo() {
 }
 
 function updateBadges() {
-  const fr = STATE.friendRequests.length;
+  if (!STATE.user) return;
+  
+  // Demandes d'amis
+  const fr = (STATE.friendRequests || []).length;
   const fb = document.getElementById('friendBadge');
-  if (fb) { fb.style.display = fr>0?'flex':'none'; fb.textContent = fr; }
-  const unread = STATE.notifications.filter(n=>!n.read).length;
+  if (fb) { fb.style.display = fr > 0 ? 'flex' : 'none'; fb.textContent = fr; }
+  
+  // Notifications non lues
+  const unread = (STATE.notifications || []).filter(n => !n.read).length;
   const nb = document.getElementById('notifBadge');
-  if (nb) { nb.style.display = unread>0?'flex':'none'; nb.textContent = unread; }
+  if (nb) { nb.style.display = unread > 0 ? 'flex' : 'none'; nb.textContent = unread; }
   const dot = document.getElementById('topNotifDot');
-  if (dot) dot.style.display = unread>0?'block':'none';
-  const hw = STATE.homework.filter(h=>!h.done).length;
+  if (dot) dot.style.display = unread > 0 ? 'block' : 'none';
+  
+  // Devoirs non faits
+  const hw = (STATE.homework || []).filter(h => !h.done).length;
   const hb = document.getElementById('hwBadge');
-  if (hb) { hb.style.display = hw>0?'flex':'none'; hb.textContent = hw; }
+  if (hb) { hb.style.display = hw > 0 ? 'flex' : 'none'; hb.textContent = hw; }
+  
+  // Messages non lus (compter les messages reçus depuis la dernière visite)
+  const msgBadge = document.getElementById('msgBadge');
+  if (msgBadge && STATE.conversations) {
+    let unreadMsgs = 0;
+    Object.values(STATE.conversations).forEach(msgs => {
+      if (Array.isArray(msgs)) {
+        unreadMsgs += msgs.filter(m => m.from && m.from !== STATE.user.email && !m.seen).length;
+      }
+    });
+    msgBadge.style.display = unreadMsgs > 0 ? 'flex' : 'none';
+    msgBadge.textContent = unreadMsgs > 99 ? '99+' : unreadMsgs;
+  }
 }
 
 function applyAdminVisibility() {
@@ -5515,14 +5535,26 @@ function closeStoryViewer() {
 async function handleLogoUpload(e) {
   const file = e.target.files[0];
   if (!file) return;
-  toast('Optimisation du logo...','info');
+  toast('Envoi du logo...', 'info');
   try {
-    STATE.settings.logoImage = await compressImage(file, 256, 0.9, 'image/png');
+    const url = await uploadToStorage(file, 'logo');
+    if (!url) return;
+    STATE.settings.logoImage = url;
     saveState();
     renderLogo();
-    toast('Logo mis à jour','success');
+    if (CLOUD && sb) {
+      const { error } = await sb.from('settings')
+        .upsert({ key: 'logo', value: url }, { onConflict: 'key' });
+      if (error) {
+        toast('Logo local OK, mais erreur serveur', 'warning');
+      } else {
+        toast('Logo mis à jour pour tous !', 'success');
+      }
+    } else {
+      toast('Logo mis à jour (local)', 'success');
+    }
   } catch (err) {
-    toast('Erreur lors de la compression','error');
+    toast('Erreur lors de l\'upload', 'error');
   }
 }
 
@@ -5556,24 +5588,29 @@ function clearTopbarBg() {
   document.getElementById('topbarBgUpload').value = '';
   toast('Image de fond retirée','success');
 }
-
 async function handleAvatarUpload(e) {
   const file = e.target.files[0];
   if (!file) return;
-  toast('Optimisation de la photo...','info');
+  toast('Envoi de la photo...', 'info');
   try {
-    const compressed = await compressImage(file, 300, 0.8);
-    STATE.settings.userAvatarImage = compressed;
-    cloudProfileUpdate(STATE.user.email, { photo: compressed });
-    { const us = usersStore(); if (us[STATE.user.email]) { us[STATE.user.email].photo = compressed; localStorage.setItem('csls_users', JSON.stringify(us)); } }
-    document.getElementById('editAvatarPreview').innerHTML = `<img src="${compressed}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
+    const url = await uploadToStorage(file, 'avatars');
+    if (!url) return;
+    STATE.settings.userAvatarImage = url;
+    cloudProfileUpdate(STATE.user.email, { photo: url });
+    const us = usersStore();
+    if (us[STATE.user.email]) {
+      us[STATE.user.email].photo = url;
+      saveUsers(us);
+    }
+    document.getElementById('editAvatarPreview').innerHTML =
+      `<img src="${url}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
     saveState();
-    toast('Photo mise à jour','success');
+    toast('Photo mise à jour pour tous !', 'success');
   } catch (err) {
-    toast('Erreur lors de la compression','error');
+    toast('Erreur lors de l\'upload', 'error');
   }
 }
-
+  
 /* ============ DASHBOARD ============ */
 function renderDashboard() {
   if (!isAdmin()) return;
@@ -6325,6 +6362,14 @@ function openConversation(email, name, status, avatar) {
   STATE.activeConv = email;
   const k = convKey(email);
   if (!STATE.conversations[k]) STATE.conversations[k] = [];
+  
+  // Marquer tous les messages de cette conversation comme lus
+  (STATE.conversations[k] || []).forEach(m => {
+    if (m.from && m.from !== STATE.user.email) m.seen = true;
+  });
+  saveLocal();
+  updateBadges();
+  
   document.getElementById('chatTitle').textContent = name;
   document.getElementById('chatSubtitle').textContent = status;
   document.getElementById('chatAvatar').innerHTML = email==='general' ? escapeHtml(avatar) : avatarInner(email, avatar);
@@ -6791,24 +6836,41 @@ function attachFile(type) {
 }
 
 async function handleFile(e) {
-  const file = e.target.files[0]; if (!file) return;
+  const file = e.target.files[0];
+  if (!file) return;
   const type = STATE.studio.pendingType;
   
   if (type === 'photo') {
-    toast('Optimisation de l\'image...','info');
+    toast('Envoi de l\'image...', 'info');
     try {
-      const compressed = await compressImage(file, 800, 0.7);
-      STATE.studio.attachment = { type: 'photo', data: compressed, name: file.name, size: Math.round((compressed.length * 3/4) / 1024) + ' KB' };
+      const url = await uploadToStorage(file, 'posts');
+      if (!url) return;
+      STATE.studio.attachment = {
+        type: 'photo',
+        data: url,
+        name: file.name,
+        size: Math.round(file.size / 1024) + ' KB'
+      };
       renderAttachmentPreview();
-      toast('Image optimisée !','success');
+      toast('Image envoyée !', 'success');
     } catch (err) {
-      toast('Erreur lors de la compression','error');
+      toast('Erreur lors de l\'upload', 'error');
     }
   } else {
     const small = file.size <= 1500000;
-    const data = small ? await new Promise(res=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=()=>res(null); fr.readAsDataURL(file); }) : null;
-    STATE.studio.attachment = { type: 'document', name: file.name, size: (file.size/1024).toFixed(0) + ' KB', data };
-    if (!small) toast('Fichier > 1,5 Mo : seul le nom sera partagé','warning');
+    const data = small ? await new Promise(res => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result);
+      fr.onerror = () => res(null);
+      fr.readAsDataURL(file);
+    }) : null;
+    STATE.studio.attachment = {
+      type: 'document',
+      name: file.name,
+      size: (file.size / 1024).toFixed(0) + ' KB',
+      data
+    };
+    if (!small) toast('Fichier > 1,5 Mo : seul le nom sera partagé', 'warning');
     renderAttachmentPreview();
   }
   e.target.value = '';
@@ -7054,6 +7116,40 @@ window.addEventListener('storage', e=>{
   }
 });
 
+/* ============ UPLOAD VERS SUPABASE STORAGE ============ */
+async function uploadToStorage(file, folder = 'misc') {
+  if (!CLOUD || !sb || !STATE.user) return null;
+  
+  try {
+    const ext = file.name.split('.').pop() || 'jpg';
+    const filename = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`;
+    
+    const { data, error } = await sb.storage
+      .from('csls-images')
+      .upload(filename, file, {
+        cacheControl: '3600',
+        upsert: false,
+        contentType: file.type
+      });
+    
+    if (error) {
+      console.error('Upload error:', error);
+      toast('Erreur upload: ' + error.message, 'error');
+      return null;
+    }
+    
+    const { data: urlData } = sb.storage
+      .from('csls-images')
+      .getPublicUrl(filename);
+    
+    return urlData.publicUrl;
+  } catch (err) {
+    console.error('Upload exception:', err);
+    toast('Erreur upload image', 'error');
+    return null;
+  }
+}
+  
 /* ============ SUPABASE : synchronisation ============ */
 let sb = null, cloudReady = false, _snap = {}, _pushT = null;
 if (CLOUD) sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -7089,11 +7185,21 @@ function pushMsg(r) {
 function addRemoteMessage(r) {
   if (!pushMsg(r)) return;
   saveLocal();
+  updateBadges();
+  
   if (r.sender !== STATE.user.email) {
     playSound('message');
-    if (!(currentPage==='chat' && convKey(STATE.activeConv)===r.conv)) toast(`${r.author} : ${String(r.body).slice(0,40)}`,'info');
+    // Si on n'est pas dans cette conversation, notifier
+    if (!(currentPage==='chat' && convKey(STATE.activeConv)===r.conv)) {
+      toast(`${r.author} : ${String(r.body).slice(0,40)}`, 'info');
+    }
   }
-  if (currentPage === 'chat') { renderChatMessages(); renderChatFriendsList(); }
+  
+  // Rafraîchir la vue chat si on y est
+  if (currentPage === 'chat') {
+    renderChatMessages();
+    renderChatFriendsList();
+  }
 }
 async function cloudPullAll() {
   await cloudProfiles();
@@ -7147,14 +7253,62 @@ function cloudSubscribe() {
     renderUser(); if (currentPage==='chat') renderChatFriendsList(); else if (currentPage==='admin') renderAdmin();
   });
   ch.on('postgres_changes', { event:'INSERT', schema:'public', table:'messages' }, p=>addRemoteMessage(p.new));
-  ch.subscribe();
+  ch.subscribe();  
+ch.on('postgres_changes', { event:'*', schema:'public', table:'settings' }, p => {
+  if (p.new && p.new.key === 'logo' && p.new.value) {
+    STATE.settings.logoImage = p.new.value;
+    saveLocal();
+    renderLogo();
+  }
+});
 }
 async function cloudStart(u) {
   await cloudProfiles();
   const me = usersStore()[(u.email||'').toLowerCase()];
   if (!me || me.blocked) { await sb.auth.signOut(); return toast('Compte suspendu ou introuvable','error'); }
   STATE.user = publicUser(me); STATE.seeded = true; saveLocal();
-  await cloudPullAll(); cloudSubscribe(); enterApp();
+  await cloudPullAll();
+  updateBadges(); 
+  cloudSubscribe(); enterApp(); 
+  
+// Rafraîchissement automatique toutes les 8 secondes (fallback)
+setInterval(async () => {
+  if (!STATE.user || !sb) return;
+  try {
+    const { data } = await sb.from('posts').select('id,data').order('updated_at', { ascending: false }).limit(60);
+    if (data) {
+      const newPosts = data.map(r => ({ ...r.data, id: r.id }));
+      const changed = JSON.stringify(newPosts) !== JSON.stringify(STATE.posts);
+      if (changed) {
+        STATE.posts = newPosts;
+        saveLocal();
+        updateBadges();
+        if (currentPage === 'feed' || currentPage === 'profile') renderPage(currentPage);
+      }
+    }
+    const { data: msgs } = await sb.from('messages').select('*').order('created_at').limit(200);
+    if (msgs) {
+      const oldCount = Object.values(STATE.conversations).reduce((n,a) => n + a.length, 0);
+      STATE.conversations = { general: [] };
+      msgs.forEach(pushMsg);
+      const newCount = Object.values(STATE.conversations).reduce((n,a) => n + a.length, 0);
+      if (newCount > oldCount) {
+        saveLocal();
+        updateBadges();
+        if (currentPage === 'chat') renderChatMessages();
+      }
+    }
+  } catch(e) {}
+}, 8000);
+  
+try {
+  const { data: logoData } = await sb.from('settings').select('value').eq('key', 'logo').maybeSingle();
+  if (logoData && logoData.value) {
+    STATE.settings.logoImage = logoData.value;
+    saveLocal();
+    renderLogo();
+  }
+} catch (err) { console.warn('Logo non chargé', err); }
 }
 async function cloudBoot() {
   const { data } = await sb.auth.getSession();
